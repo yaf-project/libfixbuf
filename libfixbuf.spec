@@ -1,4 +1,4 @@
-##  Copyright 2006-2025 Carnegie Mellon University
+##  Copyright 2006-2026 Carnegie Mellon University
 ##  See license information in LICENSE.txt.
 
 ##  libfixbuf.spec: Generated from libfixbuf.spec.in by make.
@@ -54,7 +54,7 @@
 %endif
 
 %define name    libfixbuf
-%define version 2.5.1
+%define version 2.5.4
 %define release 1%{?with_openssl:_openssl}%{?with_sctp:_sctp}%{?with_spread:_spread}%{?dist}
 
 Summary:        Fixbuf IPFIX implementation library

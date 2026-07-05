@@ -1,4 +1,4 @@
-dnl Copyright 2006-2025 Carnegie Mellon University
+dnl Copyright 2006-2026 Carnegie Mellon University
 dnl See license information in LICENSE.txt.
 
 dnl Process this file with autoconf to produce a configure script
@@ -36,27 +36,36 @@ dnl DM24-1020
 dnl @DISTRIBUTION_STATEMENT_END@
 dnl ------------------------------------------------------------------------
 
-AC_INIT([libfixbuf], [2.5.1], [netsa-help@cert.org], [libfixbuf], [https://tools.netsa.cert.org/fixbuf2/])
+AC_INIT([libfixbuf], [2.5.4], [netsa-help@cert.org], [libfixbuf], [https://tools.netsa.cert.org/fixbuf2/])
 AC_CONFIG_AUX_DIR([autoconf])
-AC_COPYRIGHT([Copyright (C) 2006-2025 Carnegie Mellon University
-GNU General Public License (GPL) Rights pursuant to Version 3, June 2007])
+AC_COPYRIGHT([Copyright 2006-2026 Carnegie Mellon University
+GNU Lesser General Public License (LGPL) Version 3])
 
-AM_INIT_AUTOMAKE([1.6.3 foreign nostdinc])
+AM_INIT_AUTOMAKE([1.11 foreign nostdinc no-installinfo tar-v7 filename-length-max=99])
 
-dnl change this version number every new release. (1:0:0 starts at 1.3.0)
-dnl the first number should be changed if the interface has changed
-dnl the second number should be changed for bug fixes, small changes
-dnl the third number should be changed if the first number changes and
-dnl the release is backwards compatible with the previous release.
+dnl Change this version number every new release that affects the
+dnl source code using these rules. (1:0:0 started at 1.3.0)
+dnl
+dnl If the changes are strictly internal and none of the public
+dnl interfaces have changed, increment the middle number only.
+dnl
+dnl If the public interfaces have changed but only to add new calls
+dnl (no changes to or removals of existing calls), increment the first
+dnl and third numbers and set the middle number to zero.
+dnl
+dnl If the public interfaces have changed and previous calls were
+dnl either modified or removed, increment the first number and set the
+dnl second and third numbers to zero.
+dnl
 dnl https://www.gnu.org/software/libtool/manual/html_node/Updating-version-info.html
 
-# Previous release: 2.5.0, LIBCOMPAT 10:0:1
-LIBCOMPAT="10:0:1"
+# Previous release: 2.5.3, LIBCOMPAT 10:2:1
+LIBCOMPAT="10:2:1"
 AC_SUBST([LIBCOMPAT])
 
 AC_CONFIG_HEADERS([include/fixbuf/config.h])
 AH_TOP([/*
- *  Copyright 2006-2025 Carnegie Mellon University
+ *  Copyright 2006-2026 Carnegie Mellon University
  *  See license information in LICENSE.txt.
  */
 /*
@@ -288,7 +297,11 @@ dnl ----------------------------------------------------------------------
 dnl Determine infomodel information
 dnl ----------------------------------------------------------------------
 INFOMODEL_AC_COLLECT_REGISTRIES([src/infomodel])
-AC_PATH_PROG([PERL], [perl])
+AC_ARG_VAR([PERL], [Perl interpreter])
+AC_PATH_PROG([PERL], [perl], [no])
+if test "X${PERL}" = "Xno" ; then
+    AC_MSG_ERROR([Did not find the required perl interpreter])
+fi
 
 dnl automake 1.9 doesn't substitute these automatically, so we do it ourselves
 dnl just in case

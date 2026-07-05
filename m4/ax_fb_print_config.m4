@@ -1,6 +1,6 @@
 ##  ax_fb_print_config.m4       -*- mode: autoconf -*-
 
-dnl Copyright 2006-2025 Carnegie Mellon University
+dnl Copyright 2006-2026 Carnegie Mellon University
 dnl See license information in LICENSE.txt.
 
 dnl Print a summary of the configuration

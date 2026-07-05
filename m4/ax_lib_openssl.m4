@@ -1,5 +1,5 @@
 dnl -*- mode: autoconf -*-
-dnl Copyright (C) 2004-2025 Carnegie Mellon University
+dnl Copyright 2004-2026 Carnegie Mellon University
 dnl See license information in LICENSE.txt.
 
 dnl ------------------------------------------------------------------------

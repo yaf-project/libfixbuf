@@ -1,6 +1,6 @@
 ##  package_version_split.m4    -*- mode: autoconf -*-
 
-dnl Copyright 2015-2025 Carnegie Mellon University
+dnl Copyright 2015-2026 Carnegie Mellon University
 dnl See license information in LICENSE.txt.
 
 dnl @DISTRIBUTION_STATEMENT_BEGIN@

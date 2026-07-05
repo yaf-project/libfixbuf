@@ -33,6 +33,8 @@
           xmlns:cert="http://www.cert.org/ipfix">
   <registry id="nfv9-information-elements">
     <title>Netflow v9 elements</title>
+    <created>2017-11-28</created>
+    <updated>2025-07-21</updated>
 
     <record>
       <name>NF_F_FW_EXT_EVENT</name>
@@ -42,9 +44,7 @@
       <elementId>9997</elementId>
       <description>
         <paragraph>
-          When libfixbuf is used as a NetFlowV9 translator, this is
-          the element to which libfixbuf maps the Cisco Element
-          NF_F_FW_EXT_EVENT whose ID (33002) represents an enterprise
+          When libfixbuf is used as a NetFlowV9 translator, this is the element to which libfixbuf maps the Cisco Element NF_F_FW_EXT_EVENT whose ID (33002) represents an enterprise
           element in IPFIX.
         </paragraph>
       </description>
@@ -58,27 +58,22 @@
       <elementId>9998</elementId>
       <description>
         <paragraph>
-          When libfixbuf is used as a NetFlowV9 translator, this is
-          the element to which libfixbuf maps the Cisco Element
-          NF_F_FW_EVENT whose ID (40005) represents an enterprise
-          element in IPFIX.
+          When libfixbuf is used as a NetFlowV9 translator, this is the element to which libfixbuf maps the Cisco Element NF_F_FW_EVENT whose ID (40005) represents an enterprise element in IPFIX.
         </paragraph>
       </description>
     </record>
 
-    <record>
+    <record updated="2025-07-21">
       <name>ciscoNetflowGeneric</name>
-      <dataType>unsigned64</dataType>
+      <dataType>octetArray</dataType>
       <cert:reversible>false</cert:reversible>
       <elementId>9999</elementId>
       <description>
         <paragraph>
-          When libfixbuf is used as a NetFlowV9 translator, this is
-          the element to which libfixbuf maps arbitrary Cisco Elements
-          whose ID is greater than 346 and are not specifically
-          translated to another element.
+          When libfixbuf is used as a NetFlowV9 translator, this is the element to which libfixbuf maps arbitrary Cisco Elements whose ID is greater than 346 and are not specifically translated to another element.
         </paragraph>
       </description>
+      <revision>1</revision>
     </record>
 
   </registry>

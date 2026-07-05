@@ -1,6 +1,6 @@
-#!/usr/bin/perl
+#! /usr/bin/env perl
 
-##  Copyright 2010-2025 Carnegie Mellon University
+##  Copyright 2010-2026 Carnegie Mellon University
 ##  See license information in LICENSE.txt.
 
 ##  Reads the NEWS file on stdin and writes the releases.xml file to stdout.
@@ -87,6 +87,8 @@ my $content;
     $content = <STDIN>;
 }
 
+# Remove lines beginning with '#'
+$content =~ s/^#+(| .*)\n//mg;
 
 # This regexp is pretty liberal, so as to be able to grok most NEWS formats.
 while ($content =~ /^Version (\d[^:]*?):?\s+\(?([^\n]+?)\)?\s*\n\s*=+\s*((?:.(?!^Version))+)/msg)

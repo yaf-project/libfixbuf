@@ -1,4 +1,4 @@
-##  Copyright 2006-2025 Carnegie Mellon University
+##  Copyright 2006-2026 Carnegie Mellon University
 ##  See license information in LICENSE.txt.
 
 ##  Process this file with automake to produce Makefile.in

@@ -1,6 +1,6 @@
 ##  ax_enable_warnings.m4       -*- mode: autoconf -*-
 
-dnl Copyright 2006-2025 Carnegie Mellon University
+dnl Copyright 2006-2026 Carnegie Mellon University
 dnl See license information in LICENSE.txt.
 
 dnl Determines the compiler flags to use for warnings.  User may use

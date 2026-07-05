@@ -1,4 +1,4 @@
-##  Copyright 2006-2025 Carnegie Mellon University
+##  Copyright 2006-2026 Carnegie Mellon University
 ##  See license information in LICENSE.txt.
 
 ##  Process this file with automake to produce Makefile.in
@@ -76,8 +76,8 @@ dist-hook: $(RELEASES_XML) $(DX_CONFIG)
 	@echo "############### running the repair script"
 	rm -f $(distdir)/include/fixbuf/version.h
 	repair_dir="$(distdir)/" ; $(REPAIR_DOXY_DOCS)
-	@echo "############### checking length of tar output"
-	$(AMTAR) cof - $(distdir) | $(CHECK_TAR_LEN)
+	@echo "############### checking tar output for missing files"
+	$(CHECK_TAR_COUNT)
 	@echo "############### finishing the dist-hook"
 
 
@@ -101,16 +101,25 @@ REPAIR_DOXY_DOCS = \
     done ; \
   fi
 
-# This reads its standard input and assures its length is at least 16k. It is
-# used by a dist-hook to check the length of the tar output in hopes of having
-# make return an error when tar fails due to a the UID being too large.
-# Without this, we get a small tar file and make returns successfully.
+# CHECK_TAR_COUNT checks for problems caused by files with large UID/GID.
+# Some tar programs ignore these files, produce an incomplete tar file, and
+# exit successfully.  This is used in the dist-hook on a test-run of tar.
 #
-CHECK_TAR_LEN = \
-  $(PERL) -e ' \
-    binmode STDIN; \
-    die "\n\t\tERROR: tar output appears too short\n" \
-        if read(STDIN, $$_, 0x4000) < 0x4000;'
+# The following counts the number of lines resulting from runing "tar" to
+# package the $distdir and "tar tf" to print its contents.  It then counts
+# the number of lines produced by running "find" on the $distdir.  If
+# the tar-count is less then find-count, it exits with an error message.
+#
+CHECK_TAR_COUNT = \
+  tardir="$(distdir)" && \
+  tar_count="$$( $(am__tar) 2>/dev/null | $(AMTAR) tf - | wc -l )" && \
+  find_count="$$( find "$$tardir" | wc -l )" && \
+  if test "$$tar_count" -lt "$$find_count" ; then \
+    echo "*ERROR: tar_count $$tar_count < find_count $$find_count" 1>&2 ; \
+    echo "*ERROR: Files missing from tar archive!" 1>&2 ; \
+    exit 1; \
+  else : ; \
+  fi
 
 # Find the news2xhtml.pl script and run it over the source file (NEWS) to
 # create the output file (RELEASES_XML == doc/releases.xml)

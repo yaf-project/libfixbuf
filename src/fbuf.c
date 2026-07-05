@@ -1,5 +1,5 @@
 /*
- *  Copyright 2006-2025 Carnegie Mellon University
+ *  Copyright 2006-2026 Carnegie Mellon University
  *  See license information in LICENSE.txt.
  */
 /**
@@ -55,25 +55,227 @@
 #define FB_DEBUG_LWR        0
 #define FB_DEBUG_LRD        0
 
-typedef struct fbTranscodePlan_st {
-    fbTemplate_t  *s_tmpl;
-    fbTemplate_t  *d_tmpl;
-    int32_t       *si;
-} fbTranscodePlan_t;
+/*
+ *  Use this in printf-style formating.  Returns:  NUM, STRING
+ *
+ *  Given an element index (0 based), returns a 1-based value and a suffix of
+ *  "st" for 1, "nd" for 2, and "th" otherwise.
+ */
+#define NTH(x_)                                                         \
+    ((x_) + 1), ((1 == ((x_) + 1) % 10)                                 \
+                 ? "st" : ((2 == ((x_) + 1) % 10) ? "nd" : "th"))
+
 
 typedef struct fbDLL_st fbDLL_t;
-
 struct fbDLL_st {
     fbDLL_t  *next;
     fbDLL_t  *prev;
 };
 
+typedef struct fbTranscodePlan_st {
+    const fbTemplate_t  *s_tmpl;
+    const fbTemplate_t  *d_tmpl;
+    int32_t             *si;
+} fbTranscodePlan_t;
+
 typedef struct fbTCPlanEntry_st fbTCPlanEntry_t;
 struct fbTCPlanEntry_st {
     fbTCPlanEntry_t    *next;
     fbTCPlanEntry_t    *prev;
-    fbTranscodePlan_t  *tcplan;
+    fbTranscodePlan_t   tcplan;
 };
+
+/* typedef struct fBuf_st fBut_t;  // fixbuf/public.h */
+struct fBuf_st {
+    /** Transport session. Contains template and sequence number state. */
+    fbSession_t      *session;
+    /** Exporter. Writes messages to a remote endpoint on flush. */
+    fbExporter_t     *exporter;
+    /** Collector. Reads messages from a remote endpoint on demand. */
+    fbCollector_t    *collector;
+    /** Cached transcoder plan */
+    fbTCPlanEntry_t  *latestTcplan;
+    /** Current internal template. */
+    fbTemplate_t     *int_tmpl;
+    /** Current external template. */
+    fbTemplate_t     *ext_tmpl;
+    /** Current internal template ID. */
+    uint16_t          int_tid;
+    /** Current external template ID. */
+    uint16_t          ext_tid;
+    /** Current special set ID. */
+    uint16_t          spec_tid;
+    /** Automatic insert flag - tid of options tmpl */
+    uint16_t          auto_insert_tid;
+    /** Automatic mode flag */
+    gboolean          automatic;
+    /** Export time in seconds since 0UTC 1 Jan 1970 */
+    uint32_t          extime;
+    /** Record counter. */
+    uint32_t          rc;
+    /** length of buffer passed from app */
+    size_t            buflen;
+    /**
+     * Current position pointer.
+     * Pointer to the next byte in the buffer to be written or read.
+     */
+    uint8_t          *cp;
+    /**
+     * Pointer to first byte in the buffer in the current Message.
+     * NULL if there is no current Message.
+     */
+    uint8_t          *msgbase;
+    /**
+     * Message end position pointer.
+     * Pointer to first byte in the buffer after the current Message.
+     */
+    uint8_t          *mep;
+    /**
+     * Pointer to first byte in the buffer in the current Set.
+     * NULL if there is no current Set.
+     */
+    uint8_t          *setbase;
+    /**
+     * Set end position pointer.
+     * Valid only after a call to fBufNextSetHeader() (called by fBufNext()).
+     */
+    uint8_t          *sep;
+    /** Message buffer. */
+    uint8_t           buf[FB_MSGLEN_MAX + 1];
+};
+
+
+/*==================================================================
+ *
+ * Debugger Functions
+ *
+ *==================================================================*/
+
+#define FB_REM_MSG(_fbuf_) (_fbuf_->mep - _fbuf_->cp)
+
+#define FB_REM_SET(_fbuf_) (_fbuf_->sep - _fbuf_->cp)
+
+#if FB_DEBUG_WR || FB_DEBUG_RD || FB_DEBUG_TC
+
+static uint32_t
+fBufDebugHexLine(
+    GString     *str,
+    const char  *lpfx,
+    uint8_t     *cp,
+    uint32_t     lineoff,
+    uint32_t     buflen)
+{
+    uint32_t cwr = 0, twr = 0;
+
+    /* stubbornly refuse to print nothing */
+    if (!buflen) {return 0;}
+
+    /* print line header */
+    g_string_append_printf(str, "%s %04x:", lpfx, lineoff);
+
+    /* print hex characters */
+    for (twr = 0; twr < 16; twr++) {
+        if (buflen) {
+            g_string_append_printf(str, " %02hhx", cp[twr]);
+            cwr++; buflen--;
+        } else {
+            g_string_append(str, "   ");
+        }
+    }
+
+    /* print characters */
+    g_string_append_c(str, ' ');
+    for (twr = 0; twr < cwr; twr++) {
+        if (cp[twr] > 32 && cp[twr] < 128) {
+            g_string_append_c(str, cp[twr]);
+        } else {
+            g_string_append_c(str, '.');
+        }
+    }
+    g_string_append_c(str, '\n');
+
+    return cwr;
+}
+
+static void
+fBufDebugHex(
+    const char  *lpfx,
+    uint8_t     *buf,
+    uint32_t     len)
+{
+    GString *str = g_string_new("");
+    uint32_t cwr = 0, lineoff = 0;
+
+    do {
+        cwr = fBufDebugHexLine(str, lpfx, buf, lineoff, len);
+        buf += cwr; len -= cwr; lineoff += cwr;
+    } while (cwr == 16);
+
+    fprintf(stderr, "%s", str->str);
+    g_string_free(str, TRUE);
+}
+
+#endif /* if FB_DEBUG_WR || FB_DEBUG_RD || FB_DEBUG_TC */
+
+#if FB_DEBUG_WR || FB_DEBUG_RD
+
+#if FB_DEBUG_TC
+
+static void
+fBufDebugTranscodePlan(
+    const fbTranscodePlan_t  *tcplan)
+{
+    int i;
+
+    fprintf(stderr, "transcode plan %p -> %p\n",
+            tcplan->s_tmpl, tcplan->d_tmpl);
+    for (i = 0; i < tcplan->d_tmpl->ie_count; i++) {
+        fprintf(stderr, "\td[%2u]=s[%2d]\n", i, tcplan->si[i]);
+    }
+}
+
+static void
+fBufDebugTranscodeOffsets(
+    fbTemplate_t  *tmpl,
+    uint16_t      *offsets)
+{
+    int i;
+
+    fprintf(stderr, "offsets %p\n", tmpl);
+    for (i = 0; i < tmpl->ie_count; i++) {
+        fprintf(stderr, "\to[%2u]=%4x\n", i, offsets[i]);
+    }
+}
+
+#endif /* if FB_DEBUG_TC */
+
+static void
+fBufDebugBuffer(
+    const char  *label,
+    fBuf_t      *fbuf,
+    size_t       len,
+    gboolean     reverse)
+{
+    uint8_t *xcp = fbuf->cp - len;
+    uint8_t *rcp = reverse ? xcp : fbuf->cp;
+
+    fprintf(stderr, "%s len %5lu mp %5ld (0x%04lx) sp %5ld mr %5ld sr %5ld\n",
+            label, len, rcp - fbuf->msgbase, rcp - fbuf->msgbase,
+            fbuf->setbase ? (rcp - fbuf->setbase) : 0,
+            fbuf->mep - fbuf->cp,
+            fbuf->sep ? (fbuf->sep - fbuf->cp) : 0);
+
+    fBufDebugHex(label, rcp, len);
+}
+
+#endif /* if FB_DEBUG_WR || FB_DEBUG_RD */
+
+
+/*==================================================================
+ *
+ * Linked List Functions
+ *
+ *==================================================================*/
 
 /**
  * detachHeadOfDLL
@@ -220,189 +422,6 @@ detachThisEntryOfDLL(
     entry->next = NULL;
 }
 
-struct fBuf_st {
-    /** Transport session. Contains template and sequence number state. */
-    fbSession_t      *session;
-    /** Exporter. Writes messages to a remote endpoint on flush. */
-    fbExporter_t     *exporter;
-    /** Collector. Reads messages from a remote endpoint on demand. */
-    fbCollector_t    *collector;
-    /** Cached transcoder plan */
-    fbTCPlanEntry_t  *latestTcplan;
-    /** Current internal template. */
-    fbTemplate_t     *int_tmpl;
-    /** Current external template. */
-    fbTemplate_t     *ext_tmpl;
-    /** Current internal template ID. */
-    uint16_t          int_tid;
-    /** Current external template ID. */
-    uint16_t          ext_tid;
-    /** Current special set ID. */
-    uint16_t          spec_tid;
-    /** Automatic insert flag - tid of options tmpl */
-    uint16_t          auto_insert_tid;
-    /** Automatic mode flag */
-    gboolean          automatic;
-    /** Export time in seconds since 0UTC 1 Jan 1970 */
-    uint32_t          extime;
-    /** Record counter. */
-    uint32_t          rc;
-    /** length of buffer passed from app */
-    size_t            buflen;
-    /**
-     * Current position pointer.
-     * Pointer to the next byte in the buffer to be written or read.
-     */
-    uint8_t          *cp;
-    /**
-     * Pointer to first byte in the buffer in the current message.
-     * NULL if there is no current message.
-     */
-    uint8_t          *msgbase;
-    /**
-     * Message end position pointer.
-     * Pointer to first byte in the buffer after the current message.
-     */
-    uint8_t          *mep;
-    /**
-     * Pointer to first byte in the buffer in the current message.
-     * NULL if there is no current message.
-     */
-    uint8_t          *setbase;
-    /**
-     * Set end position pointer.
-     * Valid only after a call to fBufNextSetHeader() (called by fBufNext()).
-     */
-    uint8_t          *sep;
-    /** Message buffer. */
-    uint8_t           buf[FB_MSGLEN_MAX + 1];
-};
-
-int transcodeCount = 0;
-/*==================================================================
- *
- * Debugger Functions
- *
- *==================================================================*/
-
-#define FB_REM_MSG(_fbuf_) (_fbuf_->mep - _fbuf_->cp)
-
-#define FB_REM_SET(_fbuf_) (_fbuf_->sep - _fbuf_->cp)
-
-#if FB_DEBUG_WR || FB_DEBUG_RD || FB_DEBUG_TC
-
-static uint32_t
-fBufDebugHexLine(
-    GString     *str,
-    const char  *lpfx,
-    uint8_t     *cp,
-    uint32_t     lineoff,
-    uint32_t     buflen)
-{
-    uint32_t cwr = 0, twr = 0;
-
-    /* stubbornly refuse to print nothing */
-    if (!buflen) {return 0;}
-
-    /* print line header */
-    g_string_append_printf(str, "%s %04x:", lpfx, lineoff);
-
-    /* print hex characters */
-    for (twr = 0; twr < 16; twr++) {
-        if (buflen) {
-            g_string_append_printf(str, " %02hhx", cp[twr]);
-            cwr++; buflen--;
-        } else {
-            g_string_append(str, "   ");
-        }
-    }
-
-    /* print characters */
-    g_string_append_c(str, ' ');
-    for (twr = 0; twr < cwr; twr++) {
-        if (cp[twr] > 32 && cp[twr] < 128) {
-            g_string_append_c(str, cp[twr]);
-        } else {
-            g_string_append_c(str, '.');
-        }
-    }
-    g_string_append_c(str, '\n');
-
-    return cwr;
-}
-
-static void
-fBufDebugHex(
-    const char  *lpfx,
-    uint8_t     *buf,
-    uint32_t     len)
-{
-    GString *str = g_string_new("");
-    uint32_t cwr = 0, lineoff = 0;
-
-    do {
-        cwr = fBufDebugHexLine(str, lpfx, buf, lineoff, len);
-        buf += cwr; len -= cwr; lineoff += cwr;
-    } while (cwr == 16);
-
-    fprintf(stderr, "%s", str->str);
-    g_string_free(str, TRUE);
-}
-
-#endif /* if FB_DEBUG_WR || FB_DEBUG_RD || FB_DEBUG_TC */
-
-#if FB_DEBUG_WR || FB_DEBUG_RD
-
-#if FB_DEBUG_TC
-
-static void
-fBufDebugTranscodePlan(
-    fbTranscodePlan_t  *tcplan)
-{
-    int i;
-
-    fprintf(stderr, "transcode plan %p -> %p\n",
-            tcplan->s_tmpl, tcplan->d_tmpl);
-    for (i = 0; i < tcplan->d_tmpl->ie_count; i++) {
-        fprintf(stderr, "\td[%2u]=s[%2d]\n", i, tcplan->si[i]);
-    }
-}
-
-static void
-fBufDebugTranscodeOffsets(
-    fbTemplate_t  *tmpl,
-    uint16_t      *offsets)
-{
-    int i;
-
-    fprintf(stderr, "offsets %p\n", tmpl);
-    for (i = 0; i < tmpl->ie_count; i++) {
-        fprintf(stderr, "\to[%2u]=%4x\n", i, offsets[i]);
-    }
-}
-
-#endif /* if FB_DEBUG_TC */
-
-static void
-fBufDebugBuffer(
-    const char  *label,
-    fBuf_t      *fbuf,
-    size_t       len,
-    gboolean     reverse)
-{
-    uint8_t *xcp = fbuf->cp - len;
-    uint8_t *rcp = reverse ? xcp : fbuf->cp;
-
-    fprintf(stderr, "%s len %5lu mp %5u (0x%04x) sp %5u mr %5u sr %5u\n",
-            label, len, rcp - fbuf->msgbase, rcp - fbuf->msgbase,
-            fbuf->setbase ? (rcp - fbuf->setbase) : 0,
-            fbuf->mep - fbuf->cp,
-            fbuf->sep ? (fbuf->sep - fbuf->cp) : 0);
-
-    fBufDebugHex(label, rcp, len);
-}
-
-#endif /* if FB_DEBUG_WR || FB_DEBUG_RD */
 
 /*==================================================================
  *
@@ -444,22 +463,22 @@ fBufDebugBuffer(
  * @param d_tmpl
  *
  */
-static fbTranscodePlan_t *
+static const fbTranscodePlan_t *
 fbTranscodePlan(
     fBuf_t        *fbuf,
     fbTemplate_t  *s_tmpl,
     fbTemplate_t  *d_tmpl)
 {
-    void            *sik, *siv;
-    uint32_t         i;
-    fbTCPlanEntry_t *entry;
+    void              *sik, *siv;
+    uint32_t           i;
+    fbTCPlanEntry_t   *entry;
     fbTranscodePlan_t *tcplan;
 
     /* check to see if plan is cached */
     if (fbuf->latestTcplan) {
         entry = fbuf->latestTcplan;
         while (entry) {
-            tcplan = entry->tcplan;
+            tcplan = &entry->tcplan;
             if (tcplan->s_tmpl == s_tmpl &&
                 tcplan->d_tmpl == d_tmpl)
             {
@@ -474,11 +493,8 @@ fbTranscodePlan(
     }
 
     entry = g_slice_new0(fbTCPlanEntry_t);
+    tcplan = &entry->tcplan;
 
-    /* create new transcode plan and cache it */
-    entry->tcplan = g_slice_new0(fbTranscodePlan_t);
-
-    tcplan = entry->tcplan;
     /* fill in template refs */
     tcplan->s_tmpl = s_tmpl;
     tcplan->d_tmpl = d_tmpl;
@@ -1486,7 +1502,7 @@ fbEncodeBasicList(
     uint16_t       ie_len;
     uint16_t       ie_num;
     uint8_t       *lengthPtr       = NULL;
-    uint16_t       i;
+    uint16_t       i               = 0;
     gboolean       enterprise      = FALSE;
     uint8_t       *prevDst         = NULL;
     fbBasicList_t *basicList;
@@ -1632,6 +1648,16 @@ fbEncodeBasicList(
     retval = TRUE;
 
   err:
+    if (FALSE == retval && i < basicList->numElements) {
+        char ent[16] = "";
+        if (enterprise) {
+            snprintf(ent, sizeof(ent), "%u/", basicList->infoElement->ent);
+        }
+        g_prefix_error(
+            err, "Error encoding %d%s item in basicList (IE=%s%u): ",
+            NTH(i), ent, basicList->infoElement->num);
+    }
+
     totalLength = (uint16_t)((*dst) - prevDst);
     FB_WRITE_U16(lengthPtr, totalLength);
 
@@ -1656,6 +1682,7 @@ fbDecodeBasicList(
     fbVarfield_t   *thisVarfield    = NULL;
     uint16_t        len;
     int             i;
+    char            ent[16];
 #if HAVE_ALIGNED_ACCESS_REQUIRED
     fbBasicList_t   basicList_local;
     basicList = &basicList_local;
@@ -1696,7 +1723,7 @@ fbDecodeBasicList(
     if (tempElement.num & IPFIX_ENTERPRISE_BIT) {
         if (srcLen < 4) {
             g_set_error(err, FB_ERROR_DOMAIN, FB_ERROR_EOM,
-                        "Not enough bytes for basic list header enterprise no.");
+                        "Not enough bytes for basic list header enterprise no");
             return FALSE;
         }
         FB_READINCREM_U32(tempElement.ent, src, srcLen);
@@ -1756,7 +1783,7 @@ fbDecodeBasicList(
                 if (!fbDecodeBasicList(
                         model, src, &thisItem, NULL, fbuf, err))
                 {
-                    return FALSE;
+                    goto decode_error;
                 }
                 /* now figure out how much to increment src by and repeat */
                 FB_READ_LIST_LENGTH(len, src);
@@ -1774,7 +1801,7 @@ fbDecodeBasicList(
              * dst double pointer */
             for (i = 0; i < basicList->numElements; i++) {
                 if (!fbDecodeSubTemplateList(src, &thisItem, NULL, fbuf, err)) {
-                    return FALSE;
+                    goto decode_error;
                 }
                 /* now figure out how much to increment src by and repeat */
                 FB_READ_LIST_LENGTH(len, src);
@@ -1794,7 +1821,7 @@ fbDecodeBasicList(
                 if (!fbDecodeSubTemplateMultiList(src, &thisItem,
                                                   NULL, fbuf, err))
                 {
-                    return FALSE;
+                    goto decode_error;
                 }
                 /* now figure out how much to increment src by and repeat */
                 FB_READ_LIST_LENGTH(len, src);
@@ -1807,7 +1834,6 @@ fbDecodeBasicList(
                     basicList->numElements * sizeof(fbVarfield_t);
                 basicList->dataPtr = g_slice_alloc0(basicList->dataLength);
             }
-
             /* now pull the data numElements times */
             thisVarfield = (fbVarfield_t *)basicList->dataPtr;
             for (i = 0; i < basicList->numElements; i++) {
@@ -1817,6 +1843,7 @@ fbDecodeBasicList(
                 src += thisVarfield->len;
                 ++thisVarfield;
             }
+            break;
         }
     } else {
         if (srcLen) {
@@ -1831,14 +1858,12 @@ fbDecodeBasicList(
             }
 
             thisItem = basicList->dataPtr;
-
             for (i = 0; i < basicList->numElements; i++) {
                 if (!fbDecodeFixed(src, &thisItem, &dRem, elementLen,
                                    elementLen, ieFlags, err))
                 {
-                    return FALSE;
+                    goto decode_error;
                 }
-
                 src += elementLen;
             }
         }
@@ -1853,6 +1878,15 @@ fbDecodeBasicList(
         *d_rem -= sizeof(fbBasicList_t);
     }
     return TRUE;
+
+  decode_error:
+    ent[0] = '\0';
+    if (basicList->infoElement->ent) {
+        snprintf(ent, sizeof(ent), "%u/", basicList->infoElement->ent);
+    }
+    g_prefix_error(err, "Error decoding %d%s item in basicList (IE=%s%u): ",
+                   NTH(i), ent, basicList->infoElement->num);
+    return FALSE;
 }
 
 static gboolean
@@ -1928,9 +1962,9 @@ fbEncodeSubTemplateList(
         if (!fbTranscode(fbuf, FALSE, subTemplateList->dataPtr + dataPtrOffset,
                          *dst, &srcLen, &dstLen, err))
         {
-            g_prefix_error(err, ("Error encoding subTemplateList (TID=%#06x)"
-                                 " at position %d: "),
-                           subTemplateList->tmplID, i);
+            g_prefix_error(err, ("Error encoding %d%s item in"
+                                 " subTemplateList (TID=%#06x): "),
+                           NTH(i), subTemplateList->tmplID);
             goto err;
         }
         /* move up the dst pointer by how much we used in transcode */
@@ -2171,9 +2205,9 @@ fbDecodeSubTemplateList(
             srcRem          -= srcLen;
             offset          += srcLen;
         } else {
-            g_prefix_error(err, ("Error decoding subTemplateList (TID=%#06x)"
-                                 " at position %d: "),
-                           subTemplateList->tmplID, i);
+            g_prefix_error(err, ("Error decoding %d%s item in"
+                                 " subTemplateList (TID=%#06x): "),
+                           NTH(i), subTemplateList->tmplID);
             return FALSE;
         }
         /* transcode numElements number of records */
@@ -2252,11 +2286,13 @@ fbEncodeSubTemplateMultiList(
     tempExtID = fbuf->ext_tid;
 
     entry = multiList->firstEntry;
-
-    for (i = 0; i < multiList->numElements; i++) {
+    for (i = 0; i < multiList->numElements; ++i, ++entry) {
+        if (0 == entry->numElements) {
+            /* skip entries that have no data */
+            continue;
+        }
         if (!validSubTemplateMultiListEntry(entry, err)) {
             g_clear_error(err);
-            entry++;
             continue;
         }
 
@@ -2275,6 +2311,9 @@ fbEncodeSubTemplateMultiList(
         if (!fBufSetEncodeSubTemplates(fbuf, entry->tmplID, entry->tmplID,
                                        err))
         {
+            g_prefix_error(err, ("Error encoding %d%s"
+                                 " subTemplateMultiListEntry (TID=%#06x): "),
+                           NTH(i), entry->tmplID);
             goto err;
         }
         srcRem = entry->dataLength;
@@ -2286,9 +2325,10 @@ fbEncodeSubTemplateMultiList(
             if (!fbTranscode(fbuf, FALSE, entry->dataPtr + srcPtrOffset, *dst,
                              &srcLen, &dstLen, err))
             {
-                g_prefix_error(err, ("Error encoding subTemplateMultiListEntry"
-                                     " (TID=%#06x) at position %d: "),
-                               entry->tmplID, j);
+                g_prefix_error(err,
+                               ("Error encoding %d%s item of %d%s"
+                                " subTemplateMultiListEntry (TID=%#06x): "),
+                               NTH(j), NTH(i), entry->tmplID);
                 goto err;
             }
             (*dst) += dstLen;
@@ -2300,7 +2340,6 @@ fbEncodeSubTemplateMultiList(
 
         length = *dst - entryLenPtr + 2; /* +2 for template ID */
         FB_WRITE_U16(entryLenPtr, length);
-        entry++;
     }
 
     retval = TRUE;
@@ -2407,8 +2446,8 @@ fbDecodeSubTemplateMultiList(
         multiList->numElements++;
     }
 
-    multiList->firstEntry = g_slice_alloc0(multiList->numElements *
-                                           sizeof(fbSubTemplateMultiListEntry_t));
+    multiList->firstEntry = g_slice_alloc0(
+        multiList->numElements * sizeof(fbSubTemplateMultiListEntry_t));
     entry = multiList->firstEntry;
 
     for (i = 0; i < multiList->numElements; i++) {
@@ -2540,9 +2579,9 @@ fbDecodeSubTemplateMultiList(
                 dstRem -= dstLen;
             } else {
                 g_prefix_error(err,
-                               ("Error decoding subTemplateMultiListEntry"
-                                " (TID=%#06x) at position %d: "),
-                               entry->tmplID, j);
+                               ("Error decoding %d%s item of %d%s"
+                                " subTemplateMultiListEntry (TID=%#06x): "),
+                               NTH(j), NTH(i), entry->tmplID);
                 if (tempIntPtr == tempExtPtr) {
                     fBufSetDecodeSubTemplates(fbuf, tempExtID, tempIntID, NULL);
                 } else {
@@ -2595,15 +2634,15 @@ fbTranscode(
     size_t    *d_len,
     GError   **err)
 {
-    fbTranscodePlan_t *tcplan;
-    fbTemplate_t      *s_tmpl, *d_tmpl;
-    ssize_t            s_len_offset;
-    uint16_t          *offsets;
-    uint8_t           *dp;
-    uint32_t           s_off, d_rem, i;
-    fbInfoElement_t   *s_ie, *d_ie;
-    gboolean           ok = TRUE;
-    uint8_t            ie_type;
+    const fbTranscodePlan_t *tcplan;
+    fbTemplate_t            *s_tmpl, *d_tmpl;
+    ssize_t                  s_len_offset;
+    uint16_t                *offsets;
+    uint8_t                 *dp;
+    uint32_t                 s_off, d_rem, i;
+    fbInfoElement_t         *s_ie, *d_ie;
+    gboolean                 ok = TRUE;
+    uint8_t                  ie_type;
 
     /* initialize walk of dest buffer */
     dp = d_base; d_rem = *d_len;
@@ -2686,6 +2725,11 @@ fbTranscode(
                                    d_ie->flags, err);
             }
             if (!ok) {
+                g_prefix_error(err, ("Error %scoding %d%s item (IE=%s) of"
+                                     " record (TID=%#06x): "),
+                               (decode ? "de" : "en"), NTH(tcplan->si[i]),
+                               s_ie->ref.canon->ref.name,
+                               (decode ? fbuf->ext_tid : fbuf->int_tid));
                 goto end;
             }
         } else if (s_ie->len == FB_IE_VARLEN && d_ie->len == FB_IE_VARLEN) {
@@ -2701,9 +2745,6 @@ fbTranscode(
                 } else {
                     ok = fbEncodeBasicList(s_base + s_off, &dp, &d_rem,
                                            fbuf, err);
-                }
-                if (!ok) {
-                    goto end;
                 }
             } else if (s_ie->type == FB_SUB_TMPL_LIST &&
                        d_ie->type == FB_SUB_TMPL_LIST)
@@ -2721,9 +2762,6 @@ fbTranscode(
                                                  fbuf,
                                                  err);
                 }
-                if (!ok) {
-                    goto end;
-                }
             } else if (s_ie->type == FB_SUB_TMPL_MULTI_LIST &&
                        d_ie->type == FB_SUB_TMPL_MULTI_LIST)
             {
@@ -2740,10 +2778,6 @@ fbTranscode(
                                                       fbuf,
                                                       err);
                 }
-
-                if (!ok) {
-                    goto end;
-                }
             } else {
                 if (decode) {
                     ok = fbDecodeVarfield(s_base + s_off, &dp, &d_rem,
@@ -2754,6 +2788,11 @@ fbTranscode(
                 }
             }
             if (!ok) {
+                g_prefix_error(err, ("Error %scoding %d%s item (IE=%s) of"
+                                     " record (TID=%#06x): "),
+                               (decode ? "de" : "en"), NTH(tcplan->si[i]),
+                               s_ie->ref.canon->ref.name,
+                               (decode ? fbuf->ext_tid : fbuf->int_tid));
                 goto end;
             }
         } else {
@@ -2979,14 +3018,12 @@ fBufFree(
         return;
     }
     /* free the tcplans */
-    while (fbuf->latestTcplan) {
-        entry = fbuf->latestTcplan;
+    while ((entry = fbuf->latestTcplan)) {
 
         detachHeadOfDLL((fbDLL_t **)(void *)&(fbuf->latestTcplan), NULL,
                         (fbDLL_t **)(void *)&entry);
-        g_free(entry->tcplan->si);
 
-        g_slice_free1(sizeof(fbTranscodePlan_t), entry->tcplan);
+        g_free(entry->tcplan.si);
         g_slice_free1(sizeof(fbTCPlanEntry_t), entry);
     }
     if (fbuf->exporter) {
@@ -3130,11 +3167,17 @@ fBufAppendSetClose(
     if (fbuf->setbase) {
         /* store set length */
         setlen = g_htons(fbuf->cp - fbuf->setbase);
-        memcpy(fbuf->setbase + 2, &setlen, sizeof(setlen));
+        if (g_htons(4) == setlen) {
+            /* This set is empty, but RFC7011 says Sets contain _one_ or more
+             * {Template,Options,Data) Records; rewind to start of Set */
+            fbuf->cp = fbuf->setbase;
+        } else {
+            memcpy(fbuf->setbase + 2, &setlen, sizeof(setlen));
 
 #if FB_DEBUG_WR
-        fBufDebugHex("cset", fbuf->setbase, 4);
+            fBufDebugHex("cset", fbuf->setbase, 4);
 #endif
+        }
 
         /* deactivate set */
         fbuf->setbase = NULL;
@@ -3316,6 +3359,7 @@ fBufResetExportTemplate(
 /**
  * fBufRemoveTemplateTcplan
  *
+ *  Remove any fbTranscodePlan_t that uses `tmpl`.
  */
 void
 fBufRemoveTemplateTcplan(
@@ -3324,15 +3368,15 @@ fBufRemoveTemplateTcplan(
 {
     fbTCPlanEntry_t *entry;
     fbTCPlanEntry_t *otherEntry;
+
     if (!fbuf || !tmpl) {
         return;
     }
 
     entry = fbuf->latestTcplan;
-
     while (entry) {
-        if (entry->tcplan->s_tmpl == tmpl ||
-            entry->tcplan->d_tmpl == tmpl)
+        if (entry->tcplan.s_tmpl == tmpl ||
+            entry->tcplan.d_tmpl == tmpl)
         {
             if (entry == fbuf->latestTcplan) {
                 otherEntry = NULL;
@@ -3344,9 +3388,7 @@ fBufRemoveTemplateTcplan(
                                  NULL,
                                  (fbDLL_t *)entry);
 
-            g_free(entry->tcplan->si);
-
-            g_slice_free1(sizeof(fbTranscodePlan_t), entry->tcplan);
+            g_free(entry->tcplan.si);
             g_slice_free1(sizeof(fbTCPlanEntry_t), entry);
 
             if (otherEntry) {
@@ -3649,7 +3691,7 @@ fBufEmit(
     fBufDebugHex("emit", fbuf->buf, fbuf->cp - fbuf->msgbase);
 #endif
 #if FB_DEBUG_LWR
-    fprintf(stderr, "emit %u (%04x)\n",
+    fprintf(stderr, "emit %ld (%04lx)\n",
             fbuf->cp - fbuf->msgbase, fbuf->cp - fbuf->msgbase);
 #endif
 

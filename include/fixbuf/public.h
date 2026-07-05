@@ -1,5 +1,5 @@
 /*
- *  Copyright 2006-2025 Carnegie Mellon University
+ *  Copyright 2006-2026 Carnegie Mellon University
  *  See license information in LICENSE.txt.
  */
 /**
@@ -148,7 +148,7 @@
  *
  * @section Copyright
  *
- * libfixbuf is copyright 2005-2023 Carnegie Mellon University, and is released
+ * libfixbuf is copyright 2005-2026 Carnegie Mellon University, and is released
  * under the GNU Lesser General Public License (LGPL) Version 3.
  * See the LICENSE.txt file in the distribution for details.
  *

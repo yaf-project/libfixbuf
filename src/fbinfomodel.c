@@ -1,5 +1,5 @@
 /*
- *  Copyright 2006-2025 Carnegie Mellon University
+ *  Copyright 2006-2026 Carnegie Mellon University
  *  See license information in LICENSE.txt.
  */
 /**
@@ -52,6 +52,12 @@
 #define FIXBUF_FATAL_TYPE_LEN_MISMATCH  0
 #endif
 
+/* Size of the GStringChunk holding elements' names */
+#define FB_MODEL_CHUNK_SIZE_IE_NAME  32768
+/* Size of the GStringChunk holding elements' descriptions */
+#define FB_MODEL_CHUNK_SIZE_IE_DESC  16384
+
+
 struct fbInfoModel_st {
     GHashTable    *ie_table;
     GHashTable    *ie_byname;
@@ -99,11 +105,11 @@ fbInfoElementDebug(
     fbInfoElement_t  *ie)
 {
     if (ie->len == FB_IE_VARLEN) {
-        fprintf(stderr, "VL %02x %08x:%04x %2u (%s)\n",
+        fprintf(stderr, "VL %03x %08x:%04x %2u (%s)\n",
                 ie->flags, ie->ent, ie->num, ie->midx,
                 tmpl ? ie->ref.canon->ref.name : ie->ref.name);
     } else {
-        fprintf(stderr, "%2u %02x %08x:%04x %2u (%s)\n",
+        fprintf(stderr, "%2u %03x %08x:%04x %2u (%s)\n",
                 ie->len, ie->flags, ie->ent, ie->num, ie->midx,
                 tmpl ? ie->ref.canon->ref.name : ie->ref.name);
     }
@@ -133,8 +139,8 @@ fbInfoModelAlloc(
     model->ie_byname = g_hash_table_new(g_str_hash, g_str_equal);
 
     /* Allocate information element name chunk */
-    model->ie_names = g_string_chunk_new(64);
-    model->ie_desc = g_string_chunk_new(128);
+    model->ie_names = g_string_chunk_new(FB_MODEL_CHUNK_SIZE_IE_NAME);
+    /* model->ie_desc is allocated when needed */
 
     /* Add elements to the information model */
     infomodelAddGlobalElements(model);
@@ -152,7 +158,9 @@ fbInfoModelFree(
     }
     g_hash_table_destroy(model->ie_byname);
     g_string_chunk_free(model->ie_names);
-    g_string_chunk_free(model->ie_desc);
+    if (model->ie_desc) {
+        g_string_chunk_free(model->ie_desc);
+    }
     g_hash_table_destroy(model->ie_table);
     g_slice_free(fbInfoModel_t, model);
 }
@@ -242,6 +250,9 @@ fbInfoModelAddElement(
     model_ie->max = ie->max;
     model_ie->type = ie->type;
     if (ie->description) {
+        if (NULL == model->ie_desc) {
+            model->ie_desc = g_string_chunk_new(FB_MODEL_CHUNK_SIZE_IE_DESC);
+        }
         model_ie->description = (g_string_chunk_insert_const(
                                      model->ie_desc, ie->description));
     }
